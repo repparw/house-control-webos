@@ -62,15 +62,20 @@ button:focus-visible svg{color:var(--ink)!important}
 .standalone-content>.sync-note{font-size:.68rem;color:#8ea2c2;line-height:1.6}.standalone-content>.sync-state{border-top:0;padding-top:.2rem}
 .info-panel{max-height:92dvh;overflow:auto}.info-panel.wide{width:76rem}.about-links{list-style:none;padding:0;margin:1.4rem 0;display:grid;gap:.7rem}.about-links li{display:flex;gap:1rem;align-items:baseline;font-size:.8rem}.about-links li>span{color:#8ea2c2;min-width:7rem}.about-link{color:#dce9ff;font-size:.8rem;text-decoration:none;word-break:break-all}a.about-link:hover{text-decoration:underline}.info-qr{background:#fff;border-radius:.6rem;display:block;width:10rem!important;height:10rem!important;flex-shrink:0}.donations{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem;margin-top:1.4rem}.donation{background:#1a2438;border:1px solid #2c3b54;border-radius:1rem;padding:1rem;display:flex;flex-direction:column;align-items:center;text-align:center;gap:.5rem;outline:none}.donation:focus-visible{outline:.2rem solid #e5eeff;outline-offset:.2rem}.donation h3{margin:0;font-size:.95rem;font-weight:500}.donation-network{margin:0;color:#8ea2c2;font-size:.6rem;line-height:1.4;min-height:2.8em;flex:1 0 auto}.donation .info-qr{width:9.5rem!important;height:9.5rem!important;margin:.3rem 0}.donation-address{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.58rem;color:#dce9ff;word-break:break-all;line-height:1.45;user-select:all}@media(max-aspect-ratio:1/1){.info-panel.wide{width:auto}.donations{grid-template-columns:1fr}.donation .info-qr{width:13rem!important;height:13rem!important}.donation-address{font-size:.8rem}.about-links li{flex-direction:column;gap:.2rem}}
 
-/* ---- 2.7: Apple-like and larger. Silver silk behind everything, light by day and dark after sunset (main.js
-   sets html[data-theme]). Bigger type for the sofa, fewer elements: the rooms share the header, the stats are one
-   line under the title, no footer. Focus is the opposite tone of the page: white at night, near-black by day. ---- */
-:root,:root[data-theme=night]{--text:#f5f5f7;--text-2:rgba(245,245,247,.68);--text-3:rgba(245,245,247,.46);--glass:rgba(255,255,255,.08);--glass-2:rgba(255,255,255,.16);--line:rgba(255,255,255,.1);--panel:rgba(22,22,24,.42);--well:rgba(0,0,0,.22);--solid:#1c1c1e;--fbg:#fff;--fink:#1d1d1f;--ring:rgba(255,255,255,.3);--warm:#ffc46b;--warm-bg:rgba(255,196,107,.16);--green:#34c759;--amber:#f0a94a;
-  --backdrop:linear-gradient(90deg,rgba(9,9,11,.62),rgba(9,9,11,.18) 55%,rgba(9,9,11,.4)),url(/silk-night.jpg) center/cover no-repeat,#0d0d0f;--scrim:rgba(0,0,0,.72)}
-:root[data-theme=day]{--text:#1d1d1f;--text-2:rgba(29,29,31,.66);--text-3:rgba(29,29,31,.46);--glass:rgba(255,255,255,.56);--glass-2:rgba(255,255,255,.92);--line:rgba(0,0,0,.06);--panel:rgba(255,255,255,.4);--well:rgba(0,0,0,.05);--solid:#f5f5f7;--fbg:#1d1d1f;--fink:#fff;--ring:rgba(0,0,0,.14);--warm:#b8690a;--warm-bg:rgba(255,190,90,.24);--amber:#c27a12;
+/* ---- 2.7: Apple-like and larger. OLED black at night (true #000 canvas, low-luminance panels) and
+   silver silk by day (main.js/webos-theme set html[data-theme]). Bigger type for the sofa, fewer elements:
+   the rooms share the header, the stats are one line under the title, no footer. Focus is the opposite
+   tone of the page: white at night, near-black by day. ---- */
+:root,:root[data-theme=oled],:root[data-theme=night]{--text:#f0f0f3;--text-2:rgba(240,240,243,.66);--text-3:rgba(240,240,243,.45);--glass:rgba(255,255,255,.045);--glass-2:rgba(255,255,255,.11);--line:rgba(255,255,255,.08);--panel:#0a0a0c;--well:rgba(255,255,255,.03);--solid:#0f0f12;--fbg:#f5f5f7;--fink:#000000;--ring:rgba(255,255,255,.28);--warm:#ffc46b;--warm-bg:rgba(255,196,107,.16);--green:#34c759;--amber:#f0a94a;--canvas:#000000;
+  --backdrop:#000000;--scrim:rgba(0,0,0,.86)}
+:root[data-theme=day]{--text:#1d1d1f;--text-2:rgba(29,29,31,.66);--text-3:rgba(29,29,31,.46);--glass:rgba(255,255,255,.56);--glass-2:rgba(255,255,255,.92);--line:rgba(0,0,0,.06);--panel:rgba(255,255,255,.4);--well:rgba(0,0,0,.05);--solid:#f5f5f7;--fbg:#1d1d1f;--fink:#fff;--ring:rgba(0,0,0,.14);--warm:#b8690a;--warm-bg:rgba(255,190,90,.24);--amber:#c27a12;--canvas:#e9eaed;
   --backdrop:linear-gradient(90deg,rgba(246,246,248,.66),rgba(246,246,248,.12) 55%,rgba(246,246,248,.34)),url(/silk-day.jpg) center/cover no-repeat,#e9eaed;--scrim:rgba(236,236,240,.8);color-scheme:light}
-:root{color:var(--text);background:var(--backdrop)}
-body{background:var(--backdrop);color:var(--text)}
+:root{color:var(--text);background:var(--backdrop);background-color:var(--canvas)}
+body{background:var(--backdrop);background-color:var(--canvas);color:var(--text)}
+/* Explicit canvases: OLED Dark is true black, Light keeps the crisp silver canvas. */
+:root[data-theme=oled],:root[data-theme=night]{background-color:#000}
+:root[data-theme=oled] body,:root[data-theme=night] body{background-color:#000}
+:root[data-theme=day],:root[data-theme=day] body{background-color:#e9eaed}
 #status,#status.offline{display:inline-flex;align-items:center;gap:.5rem;width:max-content;background:var(--glass);color:var(--text-2);padding:.4rem .8rem;border-radius:1rem;font-size:.72rem;margin:.9rem 0 0}
 #status:before{background:var(--green);box-shadow:none}#status.offline:before{background:var(--amber)}
 .logo{background:var(--glass);border:1px solid var(--line);color:var(--text)}
@@ -90,7 +95,7 @@ body{background:var(--backdrop);color:var(--text)}
 .light-icon{background:var(--glass);color:var(--text-3)}
 .on .light-icon{background:var(--warm-bg);color:var(--warm);box-shadow:none}
 .light-title strong{color:var(--text)}.light-title small,.on .light-title small{color:var(--text-3)}.on .light-title small{color:var(--text-2)}
-.toggle{background:var(--well)}:root[data-theme=night] .toggle{background:rgba(255,255,255,.18)}
+.toggle{background:var(--well)}:root[data-theme=oled] .toggle,:root[data-theme=night] .toggle{background:rgba(255,255,255,.18)}
 .climate-card{background:var(--glass)}.device-room,.climate-info,.climate-info span:first-child,.temperature span{color:var(--text-2)}
 .step{background:var(--glass);border:1px solid var(--line);color:var(--text)}.power{color:var(--text-2);border:1px solid var(--line)}
 .on .power{background:var(--fbg);color:var(--fink);border-color:transparent}
@@ -169,5 +174,36 @@ button:focus-visible svg,button:focus-visible .light-title strong{color:var(--fi
 }
 .stage-caption .summary{display:block;font-size:1rem;color:var(--text-2);margin:.55rem 0 0}
 :root .light-row.on .toggle{background:var(--green)}
-/* While the bundle loads there is only the silk (index.html picks day or night); the page then fades in. */
+/* While the bundle loads only the canvas colour shows (index.html picks OLED or day); the page then fades in. */
 #app>header,#app>.layout,#app>.scenes{animation:hc-in .45s cubic-bezier(.22,1,.36,1) both}@keyframes hc-in{from{opacity:0}}
+
+/* ---- Appearance selector in Settings: OLED Dark / Light / Auto ---- */
+.appearance-control{display:flex;flex-direction:column;gap:.4rem;margin:.1rem 0 .8rem}
+.appearance-options{margin-bottom:0}
+.appearance-option{font-weight:550;letter-spacing:.01em}
+.app-version{margin:.1rem 0 .6rem;font-size:.72rem;letter-spacing:.04em;color:var(--text-3);font-variant-numeric:tabular-nums}
+
+/* ---- Long-press light controls: compact, remote-first, fits a 1080p TV without scrolling ---- */
+.light-modal{width:44rem;max-width:100%;max-height:88dvh;overflow:auto;padding:1.4rem 1.6rem 1.6rem;display:flex;flex-direction:column;gap:.9rem}
+.light-modal-header{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:1rem}
+.light-modal .back-button{margin-left:0;padding:.5rem .7rem}
+.light-modal-heading{min-width:0}
+.light-modal-title{margin:0;font-size:1.35rem;font-weight:600;letter-spacing:-.01em;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.light-modal-subtitle{margin:.25rem 0 0;font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.light-power{gap:.5rem;min-height:2.8rem;padding:.5rem 1.1rem;border-radius:1.2rem;font-size:.9rem;font-weight:550}
+.light-power svg{width:1.1rem;height:1.1rem}
+.light-power.on{background:var(--fbg);color:var(--fink);border-color:transparent}
+.light-power.on svg{color:var(--fink)}
+.light-section{display:flex;flex-direction:column;gap:.55rem;border-top:1px solid var(--line);padding-top:.75rem}
+.light-section-title{margin:0;font-size:.7rem;letter-spacing:.16em;text-transform:uppercase;color:var(--text-3);font-weight:600}
+.light-control{display:flex;align-items:center;justify-content:center;gap:1.1rem}
+.light-step{width:2.8rem;height:2.8rem;border-radius:1rem;font-size:1.25rem}
+.light-step .step-sign{line-height:1}
+.light-readout{min-width:5rem;text-align:center;font-size:1.45rem;font-variant-numeric:tabular-nums;font-weight:600;color:var(--text)}
+.light-presets{display:flex;gap:.4rem;justify-content:center}
+.light-preset{flex:1 1 0;min-width:3.6rem;min-height:2.3rem;padding:.35rem .2rem;border-radius:.85rem;background:var(--glass);border:1px solid var(--line);color:var(--text-2);font-size:.82rem;font-weight:550}
+.light-preset[aria-pressed="true"]{background:var(--fbg);color:var(--fink);border-color:transparent}
+.color-swatches{display:flex;gap:.55rem;justify-content:center;flex-wrap:wrap}
+.color-swatch{width:2.4rem;height:2.4rem;padding:.22rem;border-radius:50%;background:transparent;border:2px solid transparent}
+.color-swatch[aria-pressed="true"]{border-color:var(--text);background:var(--glass)}
+.color-dot{display:block;width:100%;height:100%;border-radius:50%;box-shadow:inset 0 0 0 1px rgba(255,255,255,.18)}

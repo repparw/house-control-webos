@@ -20,7 +20,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 const dist = new URL('../dist/', import.meta.url);
 const html = await readFile(new URL('index.html', dist), 'utf8');
 assert.match(html, /src="\.\/webostv\/webOSTV.js"/, 'Run pnpm run build:webos first');
-for (const file of ['appinfo.json', 'webostv/webOSTV.js']) await readFile(new URL(file, dist));
+await readFile(new URL('webostv/webOSTV.js', dist));
+const { version } = JSON.parse(await readFile(new URL('appinfo.json', dist), 'utf8'));
 
 async function executable(path) {
   return access(path, constants.X_OK).then(() => true, () => false);
@@ -186,6 +187,19 @@ async function exercise({ send, events }, url, fixture) {
     await send('Input.dispatchKeyEvent', { ...event, type: 'keyUp' });
   }
 
+  // Held-OK sequences need explicit key down/up and repeat flags.
+  async function keyDown(key, code, repeat = false) {
+    await send('Input.dispatchKeyEvent', {
+      type: 'keyDown', key, windowsVirtualKeyCode: code,
+      text: key === 'Enter' ? '\r' : undefined, autoRepeat: repeat,
+    });
+  }
+  async function keyUp(key, code) {
+    await send('Input.dispatchKeyEvent', {
+      type: 'keyUp', key, windowsVirtualKeyCode: code,
+    });
+  }
+
   const textIs = (selector, text) => evaluate(
     `document.querySelector(${JSON.stringify(selector)})?.textContent.trim() === ${JSON.stringify(text)}`,
   );
@@ -211,6 +225,11 @@ async function exercise({ send, events }, url, fixture) {
 
   await until('bundled demo and initial room focus', async () =>
     await textIs('#status', 'Demo · no real devices') && await focusIs('Whole home'));
+
+  // The packaged app opens in OLED Dark: a pure black canvas, not the silk night backdrop.
+  assert.equal(await evaluate('document.documentElement.dataset.theme'), 'oled', 'Expected the OLED theme by default');
+  assert.equal(await evaluate('document.documentElement.dataset.appearance'), 'oled', 'Expected the OLED appearance by default');
+  assert.equal(await evaluate('getComputedStyle(document.body).backgroundColor'), 'rgb(0, 0, 0)', 'Expected a black OLED body canvas');
 
   // webOS hides the app on Home and resumes it later. Demo must come back ready, not
   // offline (a9eeab9). Override document.hidden because headless Chromium never hides.
@@ -242,6 +261,47 @@ async function exercise({ send, events }, url, fixture) {
   })`), 'Expected a visible Sync & connect button');
   const fileInput = 'input[aria-label="Import floor plan JSON"]';
   await until('visible floor-plan picker', () => evaluate(
+    `document.querySelector(${JSON.stringify(fileInput)})?.checkVisibility()`,
+  ));
+
+  // The packaged appinfo.json version is visible in Settings and in About.
+  const versionText = `Version ${version}`;
+  await until('packaged version in Settings', () => evaluate(
+    `document.querySelector('.sync-panel .app-version')?.textContent.trim() === ${JSON.stringify(versionText)}`,
+  ));
+  assert.equal(await evaluate('document.querySelector(\'.appearance-option[data-appearance="oled"]\').getAttribute(\'aria-pressed\')'),
+    'true', 'Expected OLED Dark selected by default');
+
+  // Appearance cycles Light -> Auto -> OLED Dark, persisting each choice.
+  const appearanceState = `(() => ({
+    theme: document.documentElement.dataset.theme,
+    appearance: document.documentElement.dataset.appearance,
+    background: getComputedStyle(document.body).backgroundColor,
+    stored: localStorage.getItem('house-control:webos:theme:v1'),
+  }))()`;
+  await evaluate('document.querySelector(\'.appearance-option[data-appearance="light"]\').click()');
+  await until('Light appearance', async () => {
+    const state = await evaluate(appearanceState);
+    return state.theme === 'day' && state.appearance === 'light' && state.stored === 'light';
+  });
+  await evaluate('document.querySelector(\'.appearance-option[data-appearance="auto"]\').click()');
+  await until('Auto appearance', async () => {
+    const state = await evaluate(appearanceState);
+    return state.appearance === 'auto' && state.stored === 'auto';
+  });
+  await evaluate('document.querySelector(\'.appearance-option[data-appearance="oled"]\').click()');
+  await until('OLED Dark appearance restored', async () => {
+    const state = await evaluate(appearanceState);
+    return state.theme === 'oled' && state.appearance === 'oled' &&
+      state.background === 'rgb(0, 0, 0)' && state.stored === 'oled';
+  });
+
+  await evaluate(`[...document.querySelectorAll('.sync-panel button')].find(button => button.textContent.trim() === 'About')?.click()`);
+  await until('packaged version in About', () => evaluate(
+    `document.querySelector('.info-panel .sync-description')?.textContent.includes(${JSON.stringify(`Version ${version} · `)})`,
+  ));
+  await evaluate('document.querySelector(\'.info-panel .back-button\').click()');
+  await until('settings reopened after About', () => evaluate(
     `document.querySelector(${JSON.stringify(fileInput)})?.checkVisibility()`,
   ));
   const { root } = await send('DOM.getDocument');
@@ -303,15 +363,52 @@ async function exercise({ send, events }, url, fixture) {
   await move('ArrowDown', 40, 'Lights off');
   await move('ArrowDown', 40, 'Upper lamp, on');
   const lit = await settledFrame('lit upper room');
-  await press('Enter', 13);
-  await until('upper lamp off', () => evaluate(
-    'document.activeElement.matches(\'button[aria-label="Upper lamp, off"][aria-pressed="false"]\')',
+  // Held OK repeats must toggle once, not once per repeat.
+  await keyDown('Enter', 13);
+  for (let repeat = 0; repeat < 5; repeat++) await keyDown('Enter', 13, true);
+  await keyUp('Enter', 13);
+  await until('upper lamp off once after held OK repeats', () => evaluate(
+    `document.activeElement.matches('button[aria-label="Upper lamp, off"][aria-pressed="false"]') &&
+      window.__houseTV.state.lights['upper-light'].on === false`,
   ));
   const unlit = await settledFrame('unlit upper room');
   assert.ok(pixelDifference(lit, unlit) > 1, 'Turning off the upper lamp should visibly change its model');
   await press('Enter', 13);
   await until('upper lamp back on', () => evaluate(
     'document.activeElement.matches(\'button[aria-label="Upper lamp, on"][aria-pressed="true"]\')',
+  ));
+
+  // A longer hold opens the compact light controls without toggling the lamp.
+  await keyDown('Enter', 13);
+  for (let repeat = 0; repeat < 3; repeat++) {
+    await delay(120);
+    await keyDown('Enter', 13, true);
+  }
+  await delay(300);
+  await keyUp('Enter', 13);
+  await until('light controls modal opens on long press', () => evaluate(
+    `document.querySelector('.light-modal')?.checkVisibility() === true &&
+      window.__houseTV.state.lights['upper-light'].on === true`,
+  ));
+  assert.ok(await evaluate(`
+    ['.light-power', '.light-brightness', '.light-temp', '.light-color'].every(selector =>
+      document.querySelector('.light-modal ' + selector)?.checkVisibility())
+  `), 'Expected power, brightness, color temperature and color controls in the light modal');
+
+  await evaluate('document.querySelector(\'.light-modal [aria-label="Set brightness 50%"]\').click()');
+  await until('brightness 50% from the light modal', () => evaluate(
+    `window.__houseTV.state.lights['upper-light'].brightness === 0.5 &&
+      window.__houseTV.state.lights['upper-light'].on === true`,
+  ));
+  await evaluate('document.querySelector(\'.light-modal .color-swatch[data-color="#a855f7"]\').click()');
+  await until('color swatch from the light modal', () => evaluate(
+    `window.__houseTV.state.lights['upper-light'].color === '#a855f7' &&
+      document.querySelector('.light-modal .color-swatch[data-color="#a855f7"]').getAttribute('aria-pressed') === 'true'`,
+  ));
+  await press('BrowserBack', 461);
+  await until('light modal closes and restores row focus', () => evaluate(
+    `!document.querySelector('.light-modal') &&
+      document.activeElement.matches('button[aria-label="Upper lamp, on"]')`,
   ));
 
   // Back clears room focus while keeping the displayed floor. Compare identical
@@ -369,7 +466,7 @@ try {
   assert.ok(page, 'Expected a blank tab in the disposable Chromium profile');
   cdp = await connect(page.webSocketDebuggerUrl);
   await exercise(cdp, url, fixture);
-  console.log('PASS packaged webOS UI: demo ready after hide/resume, SwiftShader render, room and floor navigation, Back, simulated light');
+  console.log('PASS packaged webOS UI: demo ready after hide/resume, SwiftShader render, OLED/appearance, packaged version, room and floor navigation, held-OK repeat guard, light controls modal, Back, simulated light');
 } catch (error) {
   if (stderr) console.error(stderr.trim());
   throw error;

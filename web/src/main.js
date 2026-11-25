@@ -7,6 +7,8 @@ import { normalize } from '@house-control/visuals';
 import { createWorld } from './vendor/three/world.js';
 import { api } from './api.js';
 import { ABOUT, SUPPORT_INTRO, SUPPORT_LINKS } from './support.js';
+import { applyAppearance, createAppearanceSelector, getAppearanceMode, setAppearanceMode } from './webos-theme.js';
+import { attachLightRowInput, createLightControlsPanel, shouldIgnoreDeviceRepeat } from './webos-light-modal.js';
 
 const credentials = createHACredentialStore();
 const app = document.querySelector('#app');
@@ -22,7 +24,9 @@ const modes = { cool: 'Cooling', heat: 'Heating', auto: 'Auto', dry: 'Dry', fan:
 let config, bundle, world, resizeObserver, deviceKind = 'lights', room = 'all', online = false, busy = false, orbiting = false, modal = null, lastFocus = null;
 let store = { state: { lights: {}, acs: {}, scene: null }, listeners: new Set(), on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); } };
 let lightNodes = new Map(), acNodes = new Map(), sceneNodes = new Map();
+let activeLightModal = null, lightRowDetach = [];
 let toastTimer, reportedOperation;
+const appVersion = () => bundle?.appVersion || (typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '');
 // Small TV chips (2 GB, 4 cores) draw the 3D view at a lower internal resolution; the UI stays sharp.
 const RES = (navigator.deviceMemory || 4) <= 2 || (navigator.hardwareConcurrency || 8) <= 4 ? 0.62 : 1;
 function toast(message) { const n = $('#toast'); if (!n) return; n.textContent = message; n.classList.add('visible'); clearTimeout(toastTimer); toastTimer = setTimeout(() => n.classList.remove('visible'), 4500); }
@@ -62,7 +66,10 @@ function selectRoom(id) {
   renderDevices(); update();
 }
 function renderDevices() {
-  const list = $('#device-list'); list.replaceChildren(); lightNodes.clear(); acNodes.clear();
+  const list = $('#device-list');
+  for (const detach of lightRowDetach) detach();
+  lightRowDetach = [];
+  list.replaceChildren(); lightNodes.clear(); acNodes.clear();
   const lights = config.lights.filter(d => deviceKind === 'lights' && (room === 'all' || d.room === room));
   const acs = config.acs.filter(d => deviceKind === 'acs' && (room === 'all' || d.room === room));
   for (const b of /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('[data-kind]'))) {
@@ -75,7 +82,7 @@ function renderDevices() {
   for (const d of acs) {
     const card = el('section', 'climate-card');
     const top = el('div', 'climate-top');
-    const title = el('div', 'device-title'); title.append(el('span', 'device-room', roomName(d.room)), el('h3', '', d.name));
+    const title = el('div', 'device-title'); const name = el('h3', '', d.name); title.append(el('span', 'device-room', roomName(d.room)), name);
     const power = button('Air conditioner power', 'Power', () => command({ kind: 'acPower', id: d.id, on: !store.state.acs[d.id].on }), 'power icon-button');
     top.append(title, power);
     const dial = el('div', 'climate-dial');
@@ -84,14 +91,18 @@ function renderDevices() {
     const plus = button('Raise temperature', 'Plus', () => { const n = store.state.acs[d.id].target; if (n < d.max) command({ kind: 'acTarget', id: d.id, target: n + 1 }); }, 'step icon-button');
     dial.append(minus, target, plus);
     const info = el('div', 'climate-info'); const mode = el('span'); const current = el('span'); info.append(mode, current);
-    card.append(top, dial, info); list.append(card); acNodes.set(d.id, { card, power, target, mode, current, minus, plus });
+    card.append(top, dial, info); list.append(card); acNodes.set(d.id, { card, power, name, target, mode, current, minus, plus });
   }
   for (const d of lights) {
     const b = el('button', 'light-row'); b.type = 'button';
     const lamp = el('span', 'light-icon'); lamp.append(icon('Lightbulb'));
     const title = el('span', 'light-title'); const name = el('strong', '', d.name); const detail = el('small'); title.append(name, detail);
     const toggle = el('span', 'toggle'); toggle.append(el('i'));
-    b.append(lamp, title, toggle); b.onclick = () => command({ kind: 'light', id: d.id, on: !store.state.lights[d.id].on });
+    b.append(lamp, title, toggle);
+    lightRowDetach.push(attachLightRowInput(b, {
+      onToggle: () => command({ kind: 'light', id: d.id, on: !store.state.lights[d.id].on }),
+      onLongPress: () => openLightModal(d),
+    }));
     // On small TV chips the 3D lamp highlight would redraw the model on every move; keep focus instant there.
     b.onfocus = () => { const u = world?.lights.get(d.id); if (u && RES === 1) { u.hoverGoal = 1; world.setRunning(true); } };
     b.onblur = () => { const u = world?.lights.get(d.id); if (u && RES === 1) { u.hoverGoal = 0; world.setRunning(true); } };
@@ -135,6 +146,7 @@ function update() {
   for (const [id, n] of acNodes) {
     const s = store.state.acs[id]; if (!s) continue;
     const d = config.acs.find(d => d.id === id);
+    n.name.textContent = s.displayName || d.name;
     n.card.classList.toggle('on', s.on); n.power.setAttribute('aria-pressed', String(s.on));
     n.target.replaceChildren(document.createTextNode(s.target), el('span', '', '°'));
     n.mode.textContent = s.on ? modes[s.mode] || s.mode : 'Off';
@@ -145,6 +157,7 @@ function update() {
     n.power.disabled = disabled; n.minus.disabled = disabled || s.target <= d.min; n.plus.disabled = disabled || s.target >= d.max;
   }
   for (const [id, b] of sceneNodes) { b.classList.toggle('active', id === store.state.scene); b.setAttribute('aria-pressed', id === store.state.scene); b.disabled = false; }
+  if (activeLightModal) activeLightModal.sync(store.state.lights[activeLightModal.id]);
   $('#all-off').disabled = false;
 }
 function sceneIcon(s) { return ({ sun: 'Sun', sofa: 'Sofa', film: 'Film', moon: 'Moon', door: 'DoorOpen' })[s.icon] || 'Sun'; }
@@ -189,25 +202,43 @@ function render() {
   renderDevices(); update(); tickClock();
   try {
     world = createWorld(canvas, config, store, { background: 'transparent', resolution: () => RES, onHover() {}, onPick(t) { if (!t) return; if (t.kind === 'room') selectRoom(t.id); if (t.kind === 'light') command({ kind: 'light', id: t.id, on: !store.state.lights[t.id].on }); if (t.kind === 'ac') { const d = config.acs.find(d => d.id === t.id); deviceKind = 'acs'; selectRoom(d.room); acNodes.get(t.id)?.power.focus(); } } });
-    world.setDaylight(theme.day, true); world.setInsets(70, 30); world.setRunning(true); world.intro();
+    syncAppearance(true); world.setInsets(70, 30); world.setRunning(true); world.intro();
     setTimeout(() => console.info('TV_RENDER_STATS', JSON.stringify(world?.stats())), 6000);
     resizeObserver?.disconnect(); resizeObserver = new ResizeObserver(() => world?.resize()); resizeObserver.observe(canvas);
   } catch (error) { stage.append(el('div', 'render-error', '3D is unavailable on this device. You can still use the controls on the right.')); console.error(error); }
   requestAnimationFrame(() => /** @type {HTMLElement | null} */ (tabs.querySelector('button'))?.focus({ preventScroll: true }));
   window.__houseTV = { get config() { return config; }, get state() { return store.state; }, get online() { return online; }, get world() { return world; }, command, selectRoom };
 }
-let theme = { day: false };
-function applyTheme() {
-  theme = { day: matchMedia('(prefers-color-scheme: light)').matches };
-  document.documentElement.dataset.theme = theme.day ? 'day' : 'night';
-  world?.setDaylight(theme.day);
-}
-applyTheme();
-matchMedia('(prefers-color-scheme: light)').addEventListener?.('change', applyTheme);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) applyTheme(); });
+let appearanceMode = getAppearanceMode();
+function syncAppearance(instant = false) { applyAppearance({ mode: appearanceMode, world, instant }); }
+syncAppearance(true);
+matchMedia('(prefers-color-scheme: light)').addEventListener?.('change', () => syncAppearance());
+document.addEventListener('visibilitychange', () => { if (!document.hidden) syncAppearance(); });
 function tickClock() { if ($('#clock')) $('#clock').textContent = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); }
 setInterval(tickClock, 15000);
-function closeModal() { modal?.remove(); modal = null; /** @type {HTMLElement | null} */ (lastFocus)?.focus(); }
+function closeModal() { activeLightModal = null; modal?.remove(); modal = null; /** @type {HTMLElement | null} */ (lastFocus)?.focus(); }
+function openLightModal(device) {
+  if (modal) return;
+  lastFocus = document.activeElement;
+  modal = el('div', 'modal-backdrop light-modal-backdrop');
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-label', `${store.state.lights[device.id]?.displayName || device.name} controls`);
+  const { panel, sync } = createLightControlsPanel({
+    device,
+    getState: () => store.state.lights[device.id],
+    roomName: roomName(device.room),
+    onAction: command,
+    onClose: closeModal,
+    createIcon: name => icon(name),
+  });
+  activeLightModal = { id: device.id, sync };
+  modal.append(panel);
+  document.body.append(modal);
+  const target = panel.querySelector('.light-power:not(:disabled), .light-step:not(:disabled), .light-preset:not(:disabled), .color-swatch:not(:disabled)')
+    || panel.querySelector('button:not(:disabled)');
+  /** @type {HTMLElement | null} */ (target)?.focus();
+}
 function qr(value, size) { const c = el('canvas', 'info-qr'); c.setAttribute('aria-hidden', 'true'); QRCode.toCanvas(c, value, { width: size, margin: 2, errorCorrectionLevel: 'M', color: { dark: '#0a0e1a', light: '#ffffff' } }).catch(() => c.remove()); return c; }
 function openInfo(kind) {
   const from = lastFocus; if (modal) closeModal(); lastFocus = from;
@@ -215,7 +246,7 @@ function openInfo(kind) {
   const panel = el('section', 'sync-panel info-panel' + (kind === 'support' ? ' wide' : ''));
   const backButton = button('Back', 'ArrowLeft', () => { closeModal(); openSettings(); }, 'back-button'); panel.append(backButton);
   if (kind === 'about') {
-    const version = bundle?.appVersion || '';
+    const version = appVersion();
     panel.append(el('h2', '', ABOUT.app), el('p', 'sync-description', (version ? 'Version ' + version + ' · ' : '') + ABOUT.author + ' · ' + ABOUT.upstream));
     const links = el('ul', 'about-links');
     for (const l of ABOUT.links) { const li = el('li'); li.append(el('span', '', l.label), el('span', 'about-link', l.url.replace(/^https:\/\//, ''))); links.append(li); }
@@ -241,6 +272,13 @@ async function openSettings() {
   const haStatus = await api('/api/webos/ha/status');
   panel.append(el('h2', '', 'House Control for webOS'),
     el('p', 'sync-description', 'Import your floor plan and connect directly to Home Assistant on your local network.'));
+  const version = appVersion();
+  if (version) panel.append(el('p', 'sync-note app-version', `Version ${version}`));
+  const appearance = createAppearanceSelector({
+    mode: appearanceMode,
+    onChange(nextMode) { appearanceMode = setAppearanceMode(nextMode); syncAppearance(); },
+  });
+  panel.append(el('p', 'sync-note', 'Appearance'), appearance.element);
   if (haStatus.connected || haStatus.reconnecting) {
     panel.append(el('p', 'sync-state', haStatus.connected ? 'Home Assistant connected · ' + haStatus.url : 'Home Assistant offline · reconnecting automatically'));
     panel.append(button('Disconnect Home Assistant', 'Power', async () => {
@@ -426,6 +464,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' || e.key === 'BrowserBack' || e.keyCode === 461) {
     e.preventDefault(); if (!back()) window.close(); return;
   }
+  if (shouldIgnoreDeviceRepeat(e)) { e.preventDefault(); return; }
   if (orbiting && !modal) {
     if (e.key.startsWith('Arrow')) { e.preventDefault(); world?.orbit(e.key === 'ArrowLeft' ? -4 : e.key === 'ArrowRight' ? 4 : 0, e.key === 'ArrowUp' ? 3 : e.key === 'ArrowDown' ? -3 : 0); }
     if (e.key === 'Enter') { e.preventDefault(); back(); }
