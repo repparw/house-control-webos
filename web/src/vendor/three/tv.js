@@ -5,7 +5,7 @@
 const rad = (degrees) => (degrees * Math.PI) / 180;
 
 export const TV_RENDERER_OPTIONS = Object.freeze({
-  background: '#0a0e1a',
+  background: '#000000',
   // The TV chip cannot afford the Mac renderer's bloom and MSAA passes.
   effects: false,
   lampShadows: false,
