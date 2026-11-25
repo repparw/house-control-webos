@@ -1,6 +1,8 @@
 import { copyFile, cp, readFile, writeFile } from 'node:fs/promises';
 await copyFile(new URL('./appinfo.json', import.meta.url), new URL('../dist/appinfo.json', import.meta.url));
 await copyFile(new URL('./icon.png', import.meta.url), new URL('../dist/icon.png', import.meta.url));
+await copyFile(new URL('../../LICENSE', import.meta.url), new URL('../dist/LICENSE', import.meta.url));
+await copyFile(new URL('../../UPSTREAM-LICENSE', import.meta.url), new URL('../dist/UPSTREAM-LICENSE', import.meta.url));
 
 await cp(new URL('./vendor/', import.meta.url), new URL('../dist/webostv/', import.meta.url), { recursive: true });
 const index = new URL('../dist/index.html', import.meta.url);

@@ -46,13 +46,13 @@ Phone QR provisioning needs an inbound LAN listener, which stock webOS does not 
 
 ## Product backlog (v1.0.0)
 
-Remaining items to ship `v1.0.0`:
+Completed for `v1.0.0`:
 
-1. **Show app version in Settings and About:** inject the `web/webos/appinfo.json` version into the webOS bundle so on-TV checks can confirm which build is running.
-2. **Stop OK-hold toggle storms and add long-press light controls:** ignore `event.repeat` on focused device buttons so holding D-pad OK never spams toggles or trips "newer command" errors, and open a compact light-controls modal on long-press OK (brightness, color temp, RGB color when supported by the HA entity).
-3. **Consistent Home Assistant display names in errors and toasts:** use `displayName` (for example `Pieza`) rather than the floor-plan fallback (`Ceiling over sofa`) in command errors, operation failures, and conflict messages.
-4. **OLED Dark mode and theme setting:** add an `OLED Dark` (default: `#000000` canvas, low-luminance panels) / `Light` / `Auto` selector in Settings, persisted locally and applied to both CSS and the 3D renderer.
-5. **Release v1.0.0:** verify all copy/MIT+Apache notices, bump `web/webos/appinfo.json` and `web/package.json` to `1.0.0`, run `pnpm run check`, and tag `v1.0.0` once approved.
+- **App version in Settings and About:** injects `web/webos/appinfo.json` version into the webOS bundle and displays it in Settings and About.
+- **OK-hold repeat guard and long-press light controls:** ignores `event.repeat` on focused device buttons and opens a compact light-controls modal on long-press OK (brightness, color temperature, and RGB color when supported by the HA entity).
+- **Consistent Home Assistant display names:** uses `displayName` across command errors, operation failures, and conflict messages, falling back to floor-plan names when unavailable.
+- **OLED Dark default and theme selector:** defaults to true-black `OLED Dark` (`#000000` canvas, low-luminance panels) with `Light` and `Auto` options in Settings, persisted locally and applied to CSS and the 3D renderer.
+- **Release `v1.0.0` prep:** MIT + Apache-2.0 notices packaged in `dist/`, versions bumped to `1.0.0`; ready to tag `v1.0.0` once approved.
 
 Post-v1 candidates:
 

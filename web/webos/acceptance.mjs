@@ -20,7 +20,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 const dist = new URL('../dist/', import.meta.url);
 const html = await readFile(new URL('index.html', dist), 'utf8');
 assert.match(html, /src="\.\/webostv\/webOSTV.js"/, 'Run pnpm run build:webos first');
-await readFile(new URL('webostv/webOSTV.js', dist));
+for (const file of ['LICENSE', 'UPSTREAM-LICENSE', 'webostv/webOSTV.js', 'webostv/LICENSE-2.0.txt']) await readFile(new URL(file, dist));
 const { version } = JSON.parse(await readFile(new URL('appinfo.json', dist), 'utf8'));
 
 async function executable(path) {

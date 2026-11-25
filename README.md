@@ -7,7 +7,8 @@ Based on [House Control TV](https://github.com/0xProbabillity/house-control-tv) 
 ## Features
 
 - Interactive 3D floor-plan model rendered with WebGL 2 via `@house-control/visuals`, tuned for TV GPUs
-- D-pad, OK, Back, and Magic Remote pointer navigation
+- D-pad, OK, Back, and Magic Remote pointer navigation, with long-press OK light controls (brightness, color temperature, RGB when supported)
+- OLED Dark default (`#000000` canvas, low-luminance panels), Light, and Auto appearance modes in Settings
 - Direct Home Assistant `/api/websocket` authentication, live `state_changed` updates, and device/scene control
 - Hardware-backed credential encryption via LG Keymanager3 (webOS TV 24+)
 - Confirmed in-app floor-plan JSON import with isolated demo mode
