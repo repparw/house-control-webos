@@ -11,5 +11,5 @@
     "skipLibCheck": true,
     "types": ["vite/client"]
   },
-  "include": ["src/globals.d.ts", "src/webos.js", "src/webos-credentials.js", "src/webos-ha.js", "src/webos-setup.js", "src/api.js", "src/main.js"]
+  "include": ["src/globals.d.ts", "src/webos*.js", "src/api.js", "src/main.js"]
 }

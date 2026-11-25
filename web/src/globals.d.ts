@@ -1,5 +1,7 @@
 // Ambient browser globals used by the webOS build. Type-only: Vite never bundles this file.
 
+declare const __APP_VERSION__: string | undefined;
+
 interface Window {
   __houseTV?: unknown;
 }

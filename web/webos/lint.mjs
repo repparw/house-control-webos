@@ -120,6 +120,14 @@ for (const file of [...sources, ...files('webos', /\.mjs$/)]) {
   }
 }
 
+// Keep web/package.json and web/webos/appinfo.json versions in lockstep.
+const pkgVersion = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
+const appVersion = JSON.parse(readFileSync(join(root, 'webos/appinfo.json'), 'utf8')).version;
+if (pkgVersion !== appVersion) {
+  report('webos/appinfo.json', 2, 'version-sync', `appinfo.json version (${appVersion}) differs from package.json (${pkgVersion}).`,
+    'keep web/package.json and web/webos/appinfo.json on the same version.');
+}
+
 if (findings.length) {
   console.error(findings.join('\n'));
   console.error(`\n${findings.length} lint finding(s).`);
