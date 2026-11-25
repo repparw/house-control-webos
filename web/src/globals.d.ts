@@ -1,17 +1,7 @@
-// Ambient browser globals used by the TV builds. Type-only: Vite never bundles this file.
-
-interface HouseTVBridge {
-  getConfig(): string;
-  request(id: number, path: string, body: string): void;
-  daylight?(): string;
-  exit?(): void;
-}
+// Ambient browser globals used by the webOS build. Type-only: Vite never bundles this file.
 
 interface Window {
-  HouseTV?: HouseTVBridge;
-  __tvReply?: (id: number, response: { error?: string; [key: string]: unknown }) => void;
   __houseTV?: unknown;
-  tvBack?: () => void;
 }
 
 interface Navigator {

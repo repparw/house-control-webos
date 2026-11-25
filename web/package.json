@@ -1,17 +1,17 @@
 {
-  "name": "house-control-tv",
-  "version": "1.0.0",
+  "name": "house-control-webos",
+  "version": "0.3.2",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
-    "build": "vite build --base=./",
-    "build:webos": "vite build --mode webos --base=./ && node webos/package.mjs",
+    "dev": "vite --mode webos --host 127.0.0.1",
+    "build": "vite build --mode webos --base=./ && node webos/package.mjs",
+    "build:webos": "node --run build",
     "lint": "node webos/lint.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --test webos/*.test.mjs",
     "test:acceptance": "node webos/acceptance.mjs",
-    "check": "node --run lint && node --run typecheck && node --run test && node --run build:webos && node --run test:acceptance"
+    "check": "node --run lint && node --run typecheck && node --run test && node --run build && node --run test:acceptance"
   },
   "dependencies": {
     "three": "0.186.1",
