@@ -4,6 +4,16 @@ import { webosAPI } from '../src/webos.js';
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 
+async function waitForOperation(predicate) {
+  let operation = null;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    operation = await webosAPI('/api/webos/operation');
+    if (predicate(operation)) return operation;
+    await tick();
+  }
+  return operation;
+}
+
 function plan() {
   return {
     version: 1,
@@ -18,6 +28,18 @@ function plan() {
       { id: 'all-on', name: 'All on', lights: { '*': { on: true } } },
       { id: 'toggle', name: 'Toggle', toggle: true, lights: { sim: { on: true } } },
     ],
+  };
+}
+
+function labeledPlan() {
+  const value = plan();
+  value.lights.find(device => device.id === 'ha').name = 'Ceiling over sofa';
+  return value;
+}
+
+function labeledState(attributes = { friendly_name: 'Pieza' }) {
+  return {
+    entity_id: 'light.ha', state: 'off', attributes, last_updated: new Date().toISOString(),
   };
 }
 
@@ -56,6 +78,7 @@ class FakeSocket {
   }
 
   emitState(entityId, state, timestamp = new Date().toISOString()) {
+    const current = FakeSocket.states.find(item => item.entity_id === entityId);
     this.emit({
       type: 'event',
       id: this.subscriptionId,
@@ -63,7 +86,7 @@ class FakeSocket {
         event_type: 'state_changed',
         data: {
           entity_id: entityId,
-          new_state: { entity_id: entityId, state, attributes: {}, last_updated: timestamp },
+          new_state: { entity_id: entityId, state, attributes: structuredClone(current?.attributes || {}), last_updated: timestamp },
         },
       },
     });
@@ -267,4 +290,113 @@ test('toggle scenes turn their targets off and back on again', async () => {
   assert.equal(off.home.state.scene, null);
   const on = await webosAPI('/api/action', { kind: 'scene', id: 'toggle' });
   assert.equal(on.home.state.lights.sim.on, true);
+});
+
+test('uses the Home Assistant display name in unavailable errors and falls back to the plan name', async () => {
+  await install(labeledPlan(), [{ ...labeledState(), state: 'unavailable' }]);
+  await connect();
+  await assert.rejects(
+    webosAPI('/api/action', { kind: 'light', id: 'ha', on: false }),
+    error => error.code === 'ENTITY_UNAVAILABLE' && error.message.includes('Pieza') && !error.message.includes('Ceiling over sofa'),
+  );
+  await webosAPI('/api/webos/ha/disconnect', {});
+
+  await install(labeledPlan(), [{ ...labeledState({}), state: 'unavailable' }]);
+  await connect();
+  await assert.rejects(
+    webosAPI('/api/action', { kind: 'light', id: 'ha', on: false }),
+    error => error.code === 'ENTITY_UNAVAILABLE' && error.message.includes('Ceiling over sofa') && !error.message.includes('Pieza'),
+  );
+  await webosAPI('/api/webos/ha/disconnect', {});
+});
+
+test('uses the Home Assistant display name for rejected command operation failures', async () => {
+  await install(labeledPlan(), [labeledState()]);
+  await connect();
+  FakeSocket.failEntities.add('light.ha');
+
+  await webosAPI('/api/action', { kind: 'light', id: 'ha', on: true });
+  await tick();
+  const operation = await webosAPI('/api/webos/operation');
+  assert.equal(operation.status, 'failed');
+  assert.equal(operation.failures[0].name, 'Pieza');
+  assert.match(operation.failures[0].message, /Pieza/);
+  assert.doesNotMatch(operation.failures[0].message, /Ceiling over sofa/);
+  assert.match(operation.message, /Pieza/);
+  assert.doesNotMatch(operation.message, /Ceiling over sofa/);
+  await webosAPI('/api/webos/ha/disconnect', {});
+});
+
+test('uses the Home Assistant display name in superseded and corrected conflicts', async () => {
+  await install(labeledPlan(), [labeledState()]);
+  await connect();
+  const socket = FakeSocket.instances[0];
+
+  const first = await webosAPI('/api/action', { kind: 'light', id: 'ha', on: true });
+  await webosAPI('/api/action', { kind: 'light', id: 'ha', on: false });
+  await tick();
+  let operations = await webosAPI('/api/webos/operations');
+  let superseded = operations.find(operation => operation.id === first.operation.id);
+  assert.equal(superseded.failures[0].code, 'COMMAND_SUPERSEDED');
+  assert.equal(superseded.failures[0].name, 'Pieza');
+  assert.match(superseded.failures[0].message, /Pieza/);
+  assert.doesNotMatch(superseded.failures[0].message, /Ceiling over sofa/);
+  socket.emitState('light.ha', 'off');
+  await tick();
+
+  const correction = await webosAPI('/api/action', { kind: 'light', id: 'ha', on: true });
+  socket.emitState('light.ha', 'off');
+  await tick();
+  operations = await webosAPI('/api/webos/operations');
+  const corrected = operations.find(operation => operation.id === correction.operation.id);
+  assert.equal(corrected.failures[0].code, 'STATE_CORRECTED');
+  assert.equal(corrected.failures[0].name, 'Pieza');
+  assert.match(corrected.failures[0].message, /Pieza/);
+  assert.doesNotMatch(corrected.failures[0].message, /Ceiling over sofa/);
+  await webosAPI('/api/webos/ha/disconnect', {});
+});
+
+test('uses the Home Assistant display name in scene state failures', async () => {
+  await install(labeledPlan(), [labeledState()]);
+  await connect();
+  const socket = FakeSocket.instances[0];
+
+  await webosAPI('/api/action', { kind: 'scene', id: 'all-on' });
+  await tick();
+  socket.emitState('light.ha', 'on');
+  FakeSocket.states[0].last_updated = new Date(Date.now() + 1000).toISOString();
+  await tick();
+
+  const operation = await waitForOperation(value => value?.failures?.length > 0);
+  assert.equal(operation.failures.length, 1);
+  assert.equal(operation.failures[0].name, 'Pieza');
+  assert.match(operation.failures[0].message, /Pieza/);
+  assert.match(operation.failures[0].message, /did not reach the requested scene state/);
+  assert.doesNotMatch(operation.failures[0].message, /Ceiling over sofa/);
+  await webosAPI('/api/webos/ha/disconnect', {});
+});
+
+test('publishes light capabilities, the app version and the supported temperature range', async () => {
+  await install(labeledPlan(), [labeledState({
+    friendly_name: 'Pieza',
+    supported_color_modes: ['color_temp'],
+    min_color_temp_kelvin: 2000,
+    max_color_temp_kelvin: 6535,
+  })]);
+  await connect();
+
+  const current = await webosAPI('/api/home');
+  assert.deepEqual(current.state.lights.sim.capabilities, {
+    brightness: true, temp: true, color: true, minTemp: 2200, maxTemp: 6500,
+  });
+  assert.deepEqual(current.state.lights.ha.capabilities, {
+    brightness: true, temp: true, color: false, minTemp: 2000, maxTemp: 6535,
+  });
+  assert.ok(Object.hasOwn(current, 'appVersion'));
+  assert.ok(current.appVersion === null || typeof current.appVersion === 'string');
+
+  await webosAPI('/api/action', { kind: 'lightSet', id: 'ha', temp: 2000 });
+  await assert.rejects(webosAPI('/api/action', { kind: 'lightSet', id: 'ha', temp: 1900 }), /Invalid colour temperature/);
+  await assert.rejects(webosAPI('/api/action', { kind: 'lightSet', id: 'ha', temp: Number.NaN }), /Invalid colour temperature/);
+  await webosAPI('/api/webos/ha/disconnect', {});
 });

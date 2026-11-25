@@ -33,7 +33,7 @@ export function isHAControlEntity(entityId) {
   return CONTROL_ENTITY.test(entityId);
 }
 
-function stateTime(state) {
+export function haStateTime(state) {
   const value = Date.parse(state?.last_updated || state?.last_changed || '');
   return Number.isFinite(value) ? value : null;
 }
@@ -139,7 +139,7 @@ export class HAConnection {
   stageState(entityId, state) {
     const previous = this.staged.get(entityId);
     const previousTime = this.stagedTimes.get(entityId);
-    const nextTime = stateTime(state);
+    const nextTime = haStateTime(state);
     // Events normally carry timestamps. If they do not, their arrival order is the only
     // ordering information available and the latest event wins.
     if (previous && previousTime !== null && nextTime !== null && nextTime < previousTime) return;
@@ -149,7 +149,7 @@ export class HAConnection {
   }
 
   acceptState(entityId, state) {
-    const nextTime = stateTime(state);
+    const nextTime = haStateTime(state);
     const previousTime = this.stateTimes.get(entityId);
     if (previousTime !== undefined && nextTime !== null && nextTime < previousTime) return false;
     if (nextTime !== null) this.stateTimes.set(entityId, nextTime);
@@ -163,19 +163,19 @@ export class HAConnection {
     const latest = new Map(states.filter(s => s?.entity_id).map(s => [s.entity_id, s]));
     for (const [id, previous] of this.states) {
       const snapshot = latest.get(id);
-      const previousTime = stateTime(previous);
-      const snapshotTime = stateTime(snapshot);
+      const previousTime = haStateTime(previous);
+      const snapshotTime = haStateTime(snapshot);
       if (previousTime !== null && (snapshotTime === null || snapshotTime < previousTime)) latest.set(id, previous);
     }
     for (const [id, event] of this.staged || []) {
       const previous = latest.get(id);
-      const oldTime = stateTime(previous);
-      const newTime = stateTime(event);
+      const oldTime = haStateTime(previous);
+      const newTime = haStateTime(event);
       // A snapshot newer than a queued event must not be overwritten by that older event.
       if (!previous || oldTime === null || newTime === null || newTime >= oldTime) latest.set(id, event);
     }
     for (const [id, state] of latest) {
-      const time = stateTime(state);
+      const time = haStateTime(state);
       if (time !== null) this.stateTimes.set(id, time);
       else this.stateTimes.delete(id);
       this.states.set(id, state);
@@ -228,14 +228,35 @@ export class HAConnection {
   }
 }
 
+export function haLightCapabilities(entity) {
+  const id = entity?.entity_id;
+  const a = entity?.attributes || {};
+  if (typeof id !== 'string' || !id.startsWith('light.'))
+    return { brightness: false, temp: false, color: false, minTemp: 2200, maxTemp: 6500 };
+  const modes = Array.isArray(a.supported_color_modes) ? a.supported_color_modes : [];
+  const color = modes.some(mode => ['hs', 'xy', 'rgb', 'rgbw', 'rgbww'].includes(mode));
+  const temp = modes.includes('color_temp');
+  const brightness = color || temp || modes.includes('brightness') || (!modes.length && Number.isFinite(a.brightness));
+  const minFromMireds = Number.isFinite(a.max_mireds) && a.max_mireds > 0 ? Math.round(1e6 / a.max_mireds) : 2200;
+  const maxFromMireds = Number.isFinite(a.min_mireds) && a.min_mireds > 0 ? Math.round(1e6 / a.min_mireds) : 6500;
+  let minTemp = Math.max(1500, Math.min(9000, Number.isFinite(a.min_color_temp_kelvin) ? a.min_color_temp_kelvin : minFromMireds));
+  let maxTemp = Math.max(1500, Math.min(9000, Number.isFinite(a.max_color_temp_kelvin) ? a.max_color_temp_kelvin : maxFromMireds));
+  if (minTemp > maxTemp) [minTemp, maxTemp] = [maxTemp, minTemp];
+  return { brightness, temp, color, minTemp, maxTemp };
+}
+
 export function haReading(entity) {
   const id = entity?.entity_id;
   if (!ENTITY.test(id)) return null;
   const state = entity.state;
-  if (state === 'unavailable' || state === 'unknown') return { online: false };
+  if (state === 'unavailable' || state === 'unknown') {
+    if (id.startsWith('light.') || id.startsWith('switch.'))
+      return { online: false, light: { on: false, capabilities: haLightCapabilities(entity) } };
+    return { online: false };
+  }
   const a = entity.attributes || {};
   if (id.startsWith('light.') || id.startsWith('switch.')) {
-    const light = { on: state === 'on' };
+    const light = { on: state === 'on', capabilities: haLightCapabilities(entity) };
     if (state === 'on' && Number.isFinite(a.brightness)) light.brightness = Math.max(.05, Math.min(1, a.brightness / 255));
     if (a.color_mode === 'color_temp' && Number.isFinite(a.color_temp_kelvin)) {
       light.temp = a.color_temp_kelvin; light.color = null;

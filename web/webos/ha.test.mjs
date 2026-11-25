@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { HAConnection, haURL, haReading, haCalls } from '../src/webos-ha.js';
+import { HAConnection, haURL, haReading, haCalls, haLightCapabilities } from '../src/webos-ha.js';
 
 class FakeSocket {
   static last;
@@ -44,6 +44,39 @@ test('reads linked light states and maps HA service calls', () => {
   assert.deepEqual(haCalls('light.kitchen', { on: true, brightness: .45 }, {}), [['light','turn_on',{ brightness_pct: 45 }]]);
   assert.deepEqual(haCalls('climate.room', { target: 23 }, { mode: 'cool' }), [['climate', 'set_temperature', { temperature: 23 }]]);
   assert.throws(() => haCalls('sensor.temperature', { on: true }, {}), /Unsupported/);
+});
+
+test('derives light capabilities from supported color modes and temperature attributes', () => {
+  const defaults = { brightness: false, temp: false, color: false, minTemp: 2200, maxTemp: 6500 };
+  const entity = (modes, attributes = {}) => ({
+    entity_id: 'light.test', state: 'on', attributes: { supported_color_modes: modes, ...attributes },
+  });
+
+  assert.deepEqual(haLightCapabilities(entity(['onoff'])), defaults);
+  assert.deepEqual(haLightCapabilities(entity(['brightness'])), { ...defaults, brightness: true });
+  assert.deepEqual(haLightCapabilities(entity(['color_temp'], {
+    min_color_temp_kelvin: 2000, max_color_temp_kelvin: 6535,
+    max_mireds: 500, min_mireds: 153,
+  })), { brightness: true, temp: true, color: false, minTemp: 2000, maxTemp: 6535 });
+  assert.deepEqual(haLightCapabilities(entity(['color_temp'], { max_mireds: 500, min_mireds: 153 })), {
+    brightness: true, temp: true, color: false, minTemp: 2000, maxTemp: 6536,
+  });
+
+  for (const mode of ['rgb', 'xy', 'hs']) {
+    assert.deepEqual(haLightCapabilities(entity([mode])), { ...defaults, brightness: true, color: true });
+  }
+  assert.deepEqual(haLightCapabilities(entity(['color_temp', 'xy'])), {
+    brightness: true, temp: true, color: true, minTemp: 2200, maxTemp: 6500,
+  });
+  assert.deepEqual(haLightCapabilities({ entity_id: 'switch.test', state: 'off', attributes: {} }), defaults);
+
+  const off = { entity_id: 'light.off', state: 'off', attributes: {
+    supported_color_modes: ['color_temp', 'xy'], min_color_temp_kelvin: 2000, max_color_temp_kelvin: 6535,
+  } };
+  assert.deepEqual(haLightCapabilities(off), {
+    brightness: true, temp: true, color: true, minTemp: 2000, maxTemp: 6535,
+  });
+  assert.deepEqual(haReading(off).light.capabilities, haLightCapabilities(off));
 });
 
 test('authenticates, reads states, listens for updates and calls services', async () => {

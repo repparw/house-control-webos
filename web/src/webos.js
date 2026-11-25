@@ -1,10 +1,10 @@
 import { normalize, linkOf } from '@house-control/visuals';
-import { HAConnection, haReading, haCalls, isHAControlEntity } from './webos-ha.js';
+import { HAConnection, haReading, haCalls, haLightCapabilities, haStateTime, isHAControlEntity } from './webos-ha.js';
 
 const PLAN_KEY = 'house-control:webos:demo:v1';
 const STATE_KEY = 'house-control:webos:state:v1';
 const COMMAND_TIMEOUT = 15000;
-const LIGHT_STATE_KEYS = ['on', 'brightness', 'temp', 'color'];
+const LIGHT_STATE_KEYS = ['on', 'brightness', 'temp', 'color', 'capabilities'];
 const AC_STATE_KEYS = ['on', 'target', 'mode', 'fan', 'roomTemp'];
 
 let home = null;
@@ -57,11 +57,16 @@ function validHAEntity(section, entityId) {
   return section === 'lights' ? ['light', 'switch'].includes(domain) : domain === 'climate';
 }
 
+function deviceLabel(section, device) {
+  return String(home?.state?.[section]?.[device.id]?.displayName || '').trim() || device.name;
+}
+
 function deviceError(section, device, link) {
   if (!link) return null;
+  const name = deviceLabel(section, device);
   if (link.service !== 'homeassistant')
-    return `${device.name} uses an unsupported provider: ${link.service}.`;
-  if (!validHAEntity(section, link.id)) return `${device.name} has an invalid Home Assistant entity: ${link.id}.`;
+    return `${name} uses an unsupported provider: ${link.service}.`;
+  if (!validHAEntity(section, link.id)) return `${name} has an invalid Home Assistant entity: ${link.id}.`;
   return null;
 }
 
@@ -73,6 +78,7 @@ function initialDeviceState(section, device) {
     : { on: false, target: 23, mode: 'cool', fan: 'auto' };
   return {
     ...state,
+    ...(section === 'lights' ? { capabilities: { brightness: simulated, temp: simulated, color: simulated, minTemp: 2200, maxTemp: 6500 } } : {}),
     online: simulated,
     known: simulated,
     provider: link?.service || null,
@@ -96,7 +102,7 @@ function makeHome(plan, options = {}) {
   const config = normalize(plan);
   const mode = options.mode || 'standalone';
   const next = {
-    mode, revision: crypto.randomUUID(), plan: structuredClone(plan),
+    mode, revision: crypto.randomUUID(), appVersion: typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : null, plan: structuredClone(plan),
     controlReady: mode === 'demo', macOnline: mode === 'demo',
     state: {
       lights: Object.fromEntries(config.lights.map(d => [d.id, initialDeviceState('lights', d)])),
@@ -227,6 +233,12 @@ function refreshLinkedStates(applyAuthority = ha?.connected === true) {
         state.status = 'simulated';
         continue;
       }
+      const entity = haStates.get(link.id);
+      if (applyAuthority && entity) {
+        const name = entity.attributes?.friendly_name;
+        state.displayName = typeof name === 'string' ? name.trim() || null : null;
+        if (section === 'lights') state.capabilities = haLightCapabilities(entity);
+      }
       if (link.service !== 'homeassistant') {
         state.online = false;
         state.known = false;
@@ -250,11 +262,6 @@ function refreshLinkedStates(applyAuthority = ha?.connected === true) {
         state.error = deviceError(section, device, link);
         state.errorCode = 'INVALID_ENTITY';
         continue;
-      }
-      const entity = haStates.get(link.id);
-      if (applyAuthority && section === 'lights' && entity) {
-        const name = entity.attributes?.friendly_name;
-        state.displayName = typeof name === 'string' ? name.trim() || null : null;
       }
       const reading = haReading(entity);
       const part = reading?.[section === 'lights' ? 'light' : 'ac'];
@@ -515,7 +522,7 @@ function finishOperation(operation, failures = []) {
 function operationFailure(item, error) {
   return {
     id: item.device.id,
-    name: item.device.name,
+    name: deviceLabel(item.section, item.device),
     code: error?.code || 'COMMAND_FAILED',
     message: error?.message || 'The device change failed.',
   };
@@ -542,7 +549,7 @@ function valuesMatch(section, reading, patch) {
 
 function linkedDiff(section, device, patch) {
   const reading = currentReading(section, device);
-  if (!reading?.online) throw new WebOSError(`${device.name} is unavailable in Home Assistant.`, 'ENTITY_UNAVAILABLE');
+  if (!reading?.online) throw new WebOSError(`${deviceLabel(section, device)} is unavailable in Home Assistant.`, 'ENTITY_UNAVAILABLE');
   /** @type {Record<string, any>} */
   const actual = reading[section === 'lights' ? 'light' : 'ac'] || {};
   /** @type {Record<string, any>} */
@@ -560,11 +567,6 @@ function linkedDiff(section, device, patch) {
     if (!same) diff[key] = expected;
   }
   return diff;
-}
-
-function stateTime(state) {
-  const value = Date.parse(state?.last_updated || state?.last_changed || '');
-  return Number.isFinite(value) ? value : null;
 }
 
 function maybeCompletePending(pending) {
@@ -602,7 +604,7 @@ function failPending(pending, message, code = 'COMMAND_FAILED') {
 function reconcilePending(key, state) {
   const pending = pendingCommands.get(key);
   if (!pending) return;
-  const eventTime = stateTime(state);
+  const eventTime = haStateTime(state);
   const reading = haReading(state);
   if (valuesMatch(pending.section, reading, pending.patch)) {
     pending.confirmed = true;
@@ -626,6 +628,7 @@ function failAllPending(message) {
 
 async function performChange(item) {
   const { section, device, patch } = item;
+  const name = deviceLabel(section, device);
   const state = home.state[section][device.id];
   const link = linkOf(device);
   if (!link) {
@@ -638,24 +641,17 @@ async function performChange(item) {
     saveCachedState();
     return;
   }
-  if (link.service !== 'homeassistant')
-    throw new WebOSError(`${device.name} uses an unsupported provider: ${link.service}.`, 'UNSUPPORTED_PROVIDER');
-  if (!validHAEntity(section, link.id))
-    throw new WebOSError(`${device.name} has an invalid Home Assistant entity: ${link.id}.`, 'INVALID_ENTITY');
-  if (!foreground || !ha?.connected)
-    throw new WebOSError('Connect Home Assistant before controlling real devices.', 'OFFLINE');
+  preflight(item);
   if (Object.hasOwn(patch, 'fan'))
-    throw new WebOSError(`${device.name} fan speed is not supported by the Home Assistant adapter.`, 'UNSUPPORTED_CAPABILITY');
+    throw new WebOSError(`${name} fan speed is not supported by the Home Assistant adapter.`, 'UNSUPPORTED_CAPABILITY');
   const reading = currentReading(section, device);
-  if (!reading?.online)
-    throw new WebOSError(`${device.name} is unavailable in Home Assistant.`, 'ENTITY_UNAVAILABLE');
   const key = `${section}:${device.id}`;
   const previous = pendingCommands.get(key);
   if (previous) {
     const old = supersededCommands.get(key) || [];
     old.push({ patch: previous.patch, startedAt: previous.startedAt });
     supersededCommands.set(key, old.slice(-5));
-    failPending(previous, `${device.name} received a newer command.`, 'COMMAND_SUPERSEDED');
+    failPending(previous, `${name} received a newer command.`, 'COMMAND_SUPERSEDED');
   }
   let diff = linkedDiff(section, device, patch);
   // If an older command is still in flight, issue the newer request even when the last
@@ -671,18 +667,18 @@ async function performChange(item) {
   const desired = { ...(reading[section === 'lights' ? 'light' : 'ac'] || {}), ...diff };
   const calls = haCalls(link.id, diff, desired, haStates.get(link.id)?.attributes);
   if (!calls.length)
-    throw new WebOSError(`${device.name} does not support the requested change.`, 'UNSUPPORTED_CAPABILITY');
+    throw new WebOSError(`${name} does not support the requested change.`, 'UNSUPPORTED_CAPABILITY');
 
   let resolve, reject;
   const completion = new Promise((res, rej) => { resolve = res; reject = rej; });
   const pending = {
-    key, section, id: device.id, name: device.name, patch: diff,
+    key, section, id: device.id, name, patch: diff,
     authority: reading[section === 'lights' ? 'light' : 'ac'],
     startedAt: Date.now(), serviceSettled: false, confirmed: false,
     resolve, reject, timer: null,
   };
   pending.timer = setTimeout(() => {
-    failPending(pending, `Home Assistant did not confirm the change to ${device.name}.`, 'COMMAND_TIMEOUT');
+    failPending(pending, `Home Assistant did not confirm the change to ${name}.`, 'COMMAND_TIMEOUT');
     if (item.refreshOnFailure !== false && !pendingCommands.has(key) && client?.connected) void client.snapshot().catch(() => {});
   }, COMMAND_TIMEOUT);
   pending.timer.unref?.();
@@ -703,7 +699,7 @@ async function performChange(item) {
       pending.serviceSettled = true;
       maybeCompletePending(pending);
     } catch (error) {
-      failPending(pending, error?.message || `Home Assistant rejected the change to ${device.name}.`, 'COMMAND_FAILED');
+      failPending(pending, `Home Assistant rejected the change to ${name}${error?.message ? `: ${error.message}` : '.'}`, 'COMMAND_FAILED');
       if (item.refreshOnFailure !== false && !pendingCommands.has(key) && client?.connected) void client.snapshot().catch(() => {});
     }
   })();
@@ -723,8 +719,11 @@ function sanitizePatch(section, device, patch, clamp = false) {
         if (!clamp && (raw < .05 || raw > 1)) throw new WebOSError('Invalid brightness.', 'INVALID_ACTION');
       } else if (key === 'temp') {
         if (!Number.isFinite(raw)) throw new WebOSError('Invalid colour temperature.', 'INVALID_ACTION');
-        result.temp = clamp ? Math.max(2200, Math.min(6500, raw)) : raw;
-        if (!clamp && (raw < 2200 || raw > 6500)) throw new WebOSError('Invalid colour temperature.', 'INVALID_ACTION');
+        const caps = home?.state?.lights?.[device.id]?.capabilities;
+        const minTemp = Number.isFinite(caps?.minTemp) ? caps.minTemp : 2200;
+        const maxTemp = Number.isFinite(caps?.maxTemp) ? caps.maxTemp : 6500;
+        result.temp = clamp ? Math.max(minTemp, Math.min(maxTemp, raw)) : raw;
+        if (!clamp && (raw < minTemp || raw > maxTemp)) throw new WebOSError('Invalid colour temperature.', 'INVALID_ACTION');
       } else if (key === 'color') {
         if (raw !== null && (typeof raw !== 'string' || !/^#[0-9a-f]{6}$/i.test(raw)))
           throw new WebOSError('Invalid colour.', 'INVALID_ACTION');
@@ -786,14 +785,15 @@ function sceneItems(scene, config) {
 function preflight(item) {
   const link = linkOf(item.device);
   if (!link) return;
+  const name = deviceLabel(item.section, item.device);
   if (link.service !== 'homeassistant')
-    throw new WebOSError(`${item.device.name} uses an unsupported provider: ${link.service}.`, 'UNSUPPORTED_PROVIDER');
+    throw new WebOSError(`${name} uses an unsupported provider: ${link.service}.`, 'UNSUPPORTED_PROVIDER');
   if (!validHAEntity(item.section, link.id))
-    throw new WebOSError(`${item.device.name} has an invalid Home Assistant entity: ${link.id}.`, 'INVALID_ENTITY');
+    throw new WebOSError(`${name} has an invalid Home Assistant entity: ${link.id}.`, 'INVALID_ENTITY');
   if (!foreground || !ha?.connected)
     throw new WebOSError('Connect Home Assistant before controlling real devices.', 'OFFLINE');
   if (!currentReading(item.section, item.device)?.online)
-    throw new WebOSError(`${item.device.name} is unavailable in Home Assistant.`, 'ENTITY_UNAVAILABLE');
+    throw new WebOSError(`${name} is unavailable in Home Assistant.`, 'ENTITY_UNAVAILABLE');
 }
 
 function runBatch(operation, items, options = {}) {
@@ -821,7 +821,7 @@ function runBatch(operation, items, options = {}) {
         if (linkOf(item.device)?.service !== 'homeassistant') continue;
         try {
           const diff = linkedDiff(item.section, item.device, item.patch);
-          if (Object.keys(diff).length) failures.push(operationFailure(item, new WebOSError(`${item.device.name} did not reach the requested scene state.`, 'STATE_CORRECTED')));
+          if (Object.keys(diff).length) failures.push(operationFailure(item, new WebOSError(`${deviceLabel(item.section, item.device)} did not reach the requested scene state.`, 'STATE_CORRECTED')));
         } catch (error) {
           failures.push(operationFailure(item, error));
         }
