@@ -1,6 +1,6 @@
 {
   "id": "dev.housecontrol.webos",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "vendor": "House Control for webOS contributors",
   "type": "web",
   "main": "index.html",
