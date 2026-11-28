@@ -11,6 +11,9 @@ jobs:
     defaults:
       run:
         working-directory: web
+    env:
+      # The E2E suite uses the runner's preinstalled Chrome; never fetch Playwright browsers.
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -27,6 +30,13 @@ jobs:
       - run: pnpm run test
       - run: pnpm run build
       - run: pnpm run test:acceptance
+      - run: pnpm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: house-control-webos-e2e-failures
+          path: web/test-results/
+          retention-days: 7
       - run: npx --yes --package=@webos-tools/cli@3.2.6 ares-package dist --outdir ../.local/webos
       - uses: actions/upload-artifact@v4
         with:
