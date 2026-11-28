@@ -3,8 +3,11 @@
 //   pnpm run build:webos
 //   pnpm run test:acceptance
 // The browser is, in order: $CHROMIUM, the newest $HOME/.t3/tools/chrome-headless-shell
-// (with $HOME/.t3/chrome-libs on LD_LIBRARY_PATH when present), then chromium,
-// chromium-browser, google-chrome or google-chrome-stable on PATH. The test serves the packaged dist/
+// (with $HOME/.t3/chrome-libs on LD_LIBRARY_PATH when present), then google-chrome,
+// google-chrome-stable, chromium or chromium-browser on PATH. Chrome is preferred on
+// PATH because GitHub's ubuntu-24.04 runners ship a snapshot Chromium that cannot
+// start under their AppArmor user-namespace policy (actions/runner-images#12096).
+// The test serves the packaged dist/
 // (the input to ares-package) on loopback and uses a disposable browser profile.
 // It imports an unlinked plan in the UI and requires no TV or Home Assistant.
 import assert from 'node:assert/strict';
@@ -56,7 +59,7 @@ export async function findChromium(env = process.env) {
       return { command: candidates[0].path, env: { ...env, ...(libraryPath ? { LD_LIBRARY_PATH: libraryPath } : {}) } };
     }
   }
-  for (const name of ['chromium', 'chromium-browser', 'google-chrome', 'google-chrome-stable']) {
+  for (const name of ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser']) {
     for (const dir of (env.PATH || '').split(delimiter).filter(Boolean)) {
       if (await executable(join(dir, name))) return { command: join(dir, name), env };
     }

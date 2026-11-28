@@ -17,7 +17,9 @@ Scope limits:
 
 ## Build and verification
 
-From `web/` with Node 24, run `pnpm run check` (lint, `tsc --noEmit`, unit + BFS state-machine tests, build, and headless Chromium + SwiftShader WebGL acceptance). `pnpm run build` produces the app in `dist/`; package it with `npx --yes --package=@webos-tools/cli@3.2.6 ares-package dist --outdir ../.local/webos`.
+From `web/` with Node 24, run `pnpm run check` (lint, `tsc --noEmit`, unit + BFS state-machine tests, build, headless Chromium + SwiftShader WebGL acceptance, and the Playwright E2E suite). `pnpm run build` produces the app in `dist/`; package it with `npx --yes --package=@webos-tools/cli@3.2.6 ares-package dist --outdir ../.local/webos`.
+
+The Playwright E2E suite (`web/e2e/`, `pnpm run test:e2e`) drives the packaged `dist/` the way a TV loads it: a loopback mock Home Assistant WebSocket (`web/e2e/mock-ha.mjs`) is reached through the `homeassistant` host alias, so the app's URL validation and CSP rules stay intact, and a Keymanager3 bridge (`web/e2e/webos-bridge.mjs`) stores credentials as the TV would. It covers connect, live state and commands, socket drop and reconnect, and reload persistence of theme, plan and encrypted credentials with no plaintext token in browser storage. Failures leave screenshots and traces in `web/test-results/` (uploaded by CI). The browser is the system or T3 Chrome discovered by `web/e2e/chromium.mjs`; Playwright never downloads its own.
 
 Deploying to the LG C3 is opt-in, reserved for explicit hardware checks. On unrooted TVs, install with LG Developer Mode and the webOS CLI; Developer Mode installations expire when the developer session ends. **On the already rooted C3, install through the existing rooted SSH setup and leave the LG Developer Mode app disabled**, since enabling it can interfere with root (see the webOS Homebrew guidance).
 

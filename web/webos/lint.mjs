@@ -96,7 +96,7 @@ for (const file of sources) {
 }
 
 // Syntax for every module, including files outside the tsc include list.
-for (const file of [...sources, ...files('webos', /\.mjs$/)]) {
+for (const file of [...sources, ...files('webos', /\.mjs$/), ...files('e2e', /\.mjs$/)]) {
   const result = spawnSync(process.execPath, ['--check', join(root, file)], { encoding: 'utf8' });
   if (result.status !== 0) {
     report(file, 0, 'syntax', result.stderr.trim().split('\n').slice(0, 5).join(' | '), 'correct the syntax error reported by node --check.');
@@ -104,7 +104,7 @@ for (const file of [...sources, ...files('webos', /\.mjs$/)]) {
 }
 
 // Unused named imports. tsc covers the typed modules with noUnusedLocals; this covers the rest.
-for (const file of [...sources, ...files('webos', /\.mjs$/)]) {
+for (const file of [...sources, ...files('webos', /\.mjs$/), ...files('e2e', /\.mjs$/)]) {
   const text = readFileSync(join(root, file), 'utf8');
   const body = code(text);
   for (const match of body.matchAll(/^import\s+(?:([\w$]+)\s*,?\s*)?(?:\{([^}]*)\})?\s*from\s/gm)) {
